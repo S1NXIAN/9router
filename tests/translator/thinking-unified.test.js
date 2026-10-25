@@ -7,6 +7,8 @@ import {
   applyThinking,
 } from "../../open-sse/translator/concerns/thinkingUnified.js";
 import { extractReasoningText } from "../../open-sse/translator/concerns/reasoning.js";
+import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.js";
+import { ollamaBodyToOpenAI } from "../../open-sse/translator/response/ollama-to-openai.js";
 
 const apply = (targetFormat, model, body, provider) => {
   const b = JSON.parse(JSON.stringify(body));
@@ -352,5 +354,45 @@ describe("transport-declared thinkingFormat (Responses endpoints)", () => {
   it("a provider without the declaration keeps its existing Responses behaviour (control)", () => {
     const out = apply("openai-responses", "oc/space-bunny-free", chatBody("high"), "oc");
     expect(out.reasoning_effort).toBe("high");
+  });
+});
+
+// Ollama's native /api/chat toggles thinking with the top-level `think` field
+// (bool or model-defined level). Per /api/show, gemma4 publishes
+// thinking.values [false,true] with default false, while gpt-oss defaults to
+// "medium" — so without an explicit think, gemma4 answers with no trace at all.
+describe("Ollama native thinking (think field)", () => {
+  const body = () => ({ messages: [{ role: "user", content: "hi" }] });
+
+  it("declares reasoning + the native format for gemma4", () => {
+    expect(getCapabilitiesForModel("ollama", "gemma4:31b")).toMatchObject({
+      reasoning: true,
+      thinkingFormat: "ollama",
+      vision: true,
+    });
+  });
+
+  it("switches thinking on by default (no client intent) because the upstream default is off", () => {
+    expect(apply("ollama", "gemma4:31b", body(), "ollama").think).toBe(true);
+    expect(apply("ollama", "gpt-oss:120b", body(), "ollama").think).toBe(true);
+  });
+
+  it("honours an explicit disable", () => {
+    expect(apply("ollama", "gemma4:31b", { ...body(), reasoning_effort: "none" }, "ollama").think).toBe(false);
+    expect(apply("ollama", "gemma4:31b(none)", body(), "ollama").think).toBe(false);
+    expect(apply("ollama", "gemma4:31b", { ...body(), think: false }, "ollama").think).toBe(false);
+  });
+
+  it("never sends think for a model without reasoning capability", () => {
+    expect(apply("ollama", "mistral-large-3:675b", body(), "ollama").think).toBeUndefined();
+  });
+
+  it("maps message.thinking back to reasoning_content", () => {
+    const out = ollamaBodyToOpenAI({
+      model: "gemma4:31b",
+      message: { role: "assistant", content: "39", thinking: "17*23 = 391" },
+      done_reason: "stop",
+    });
+    expect(out.choices[0].message.reasoning_content).toBe("17*23 = 391");
   });
 });

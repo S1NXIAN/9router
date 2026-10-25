@@ -21,6 +21,14 @@ export default {
     baseUrl: "https://ollama.com/api/chat",
     validateUrl: "https://ollama.com/api/tags",
     format: "ollama",
+    // Native Ollama turns thinking on with the top-level `think` field, not
+    // reasoning_effort/thinking objects. Per-model defaults vary: gpt-oss
+    // defaults to "medium", gemma4 defaults to false, so an unset `think`
+    // silently disables reasoning on gemma4. See thinkingUnified applyFormat "ollama".
+    thinkingFormat: "ollama",
+    // Reasoning-capable models here default thinking OFF (gemma4); switch on
+    // unless the client explicitly asks for none. See applyThinking.
+    thinkingDefault: true,
   },
   models: [
     { id: "gpt-oss:120b", name: "GPT OSS 120B" },

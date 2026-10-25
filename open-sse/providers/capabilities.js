@@ -376,13 +376,17 @@ export const PROVIDER_CAPABILITIES = {
   },
   // Ollama Cloud — the generic *deepseek-v4* pattern misses the vision badge
   // the library page publishes for this model (text+image in, 1M context).
-  // ponytail: thinkingFormat stays "deepseek" to preserve today's body shape;
-  // Ollama's native toggle is the top-level `think` field (bool or
-  // low/medium/high/max), which no format in thinkingUnified.js emits yet —
-  // openai-to-ollama.js drops it. Wire a "think" format when thinking on
-  // Ollama Cloud is actually needed.
+  // Ollama Cloud's native toggle is the top-level `think` field (bool or
+  // model-defined level). `thinkingFormat: "ollama"` is declared on the
+  // transport (registry/ollama.js) so it applies to every model this provider
+  // serves, including user-added ids that never reach this table.
   "ollama": {
-    "deepseek-v4.1-flash:cloud": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+    "deepseek-v4.1-flash:cloud": { vision: true, reasoning: true, thinkingFormat: "ollama", contextWindow: 1000000, maxOutput: 384000 },
+    // Thinking values from /api/show: false|true, default false — reasoning is
+    // off upstream unless the request sends think:true. The pattern entry below
+    // carries the same numbers models.dev publishes (262144/262144).
+    "gemma4:31b": { vision: true, reasoning: true, thinkingFormat: "ollama", contextWindow: 262144, maxOutput: 262144 },
+    "gemma4:31b-cloud": { vision: true, reasoning: true, thinkingFormat: "ollama", contextWindow: 262144, maxOutput: 262144 },
   },
   // MiniMax Code (mcode) credits lane — Anthropic messages on mavis; thinking
   // is adaptive effort via output_config (claude-adaptive). Limits from
@@ -488,6 +492,7 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*gemini-2.5*",    caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 0, max: 24576 }, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini-2*",      caps: { vision: true, audioInput: true, videoInput: true, search: true, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini*",        caps: { vision: true, search: true, contextWindow: 1048576 } },
+  { pattern: "*gemma4*",        caps: { vision: true, reasoning: true, contextWindow: 262144, maxOutput: 262144 } },
   { pattern: "*gemma*",         caps: { vision: true, contextWindow: 128000 } },
   { pattern: "*nanobanana*",    caps: { vision: true, imageOutput: true } },
 

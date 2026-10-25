@@ -20,6 +20,7 @@ const FORMAT_TO_NATIVE = {
   antigravity: "gemini-budget",
   kiro: "kiro",
   commandcode: "commandcode",
+  ollama: "ollama",
 };
 
 // Strip a trailing thinking suffix "model(value)" → "model" (no-op when absent).
@@ -99,6 +100,11 @@ export function extractThinking(body) {
     return { mode: "auto" };
   }
 
+  // Ollama native shape — only relevant when a client sends the field itself;
+  // the translated body normally gets `think` applied after this capture.
+  if (body.think === false) return { mode: "none" };
+  if (body.think === true) return { mode: "auto" };
+
   return null;
 }
 
@@ -125,7 +131,7 @@ function openAIThinkingDisplay(body) {
   return undefined;
 }
 
-const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-budget", "claude-adaptive", "kiro"]);
+const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-budget", "claude-adaptive", "kiro", "ollama"]);
 
 function resolveFormat(targetFormat, model, provider) {
   if (targetFormat === "commandcode") return "commandcode";
@@ -250,6 +256,7 @@ function stripAll(body) {
   delete body.enable_thinking;
   delete body.thinking_budget;
   delete body.output_config;
+  delete body.think;
   if (body.generationConfig) delete body.generationConfig.thinkingConfig;
   if (body.request?.generationConfig) delete body.request.generationConfig.thinkingConfig;
   if (body.params && typeof body.params === "object") {
@@ -286,6 +293,17 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
         if (!body.reasoning.summary) body.reasoning.summary = "auto";
       }
       delete body.reasoning_effort;
+      break;
+    }
+    case "ollama": {
+      // Native /api/chat: `think` is a boolean or a model-defined level string
+      // (GET /api/show -> thinking.values). Those sets differ per model —
+      // gpt-oss: low|medium|high (default medium), gemma4: false|true (default
+      // false), deepseek: false|low|high|max — and an unsupported name falls
+      // back to the model default, so a generic level string silently turns
+      // thinking OFF on gemma4. The boolean is valid for every thinking model,
+      // so use it and let the model run at its own default effort.
+      body.think = !(none && canDisable);
       break;
     }
     case "claude-adaptive": {
@@ -444,10 +462,22 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
     stripAll(body);
     return body;
   }
-  if (!cfg) return body;
 
   const fmt = resolveFormat(targetFormat, cleanModel, provider);
   const supportedLevels = getThinkingLevels(provider, cleanModel);
+
+  if (!cfg) {
+    // Some native toggles default to OFF upstream (Ollama: gemma4 publishes
+    // thinking.values [false,true] with default false), so a reasoning-capable
+    // model answers with no trace unless the request switches it on. Transports
+    // that need this opt in with `thinkingDefault: true`.
+    const defaultOn = fmt === "ollama" && PROVIDERS[provider]?.thinkingDefault === true;
+    if (!defaultOn) return body;
+    stripAll(body);
+    applyFormat(fmt, body, { mode: "auto" }, caps, supportedLevels, undefined);
+    return body;
+  }
+
   // Anthropic's `display` (summarized | omitted) decides whether thinking text
   // comes back at all; keep what the client asked for instead of resetting it.
   // An OpenAI-shaped client's ask arrives via the captured intent instead.
