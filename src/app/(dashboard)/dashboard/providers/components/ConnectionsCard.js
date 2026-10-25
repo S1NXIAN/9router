@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
+import { sortConnectionsByLabel } from "../utils";
 import PropTypes from "prop-types";
 import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
 import WebLoginButton from "./WebLoginButton";
@@ -305,6 +306,7 @@ export default function ConnectionsCard({ providerId, isOAuth, loginProviderId =
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [providerStrategy, setProviderStrategy] = useState(null);
   const [providerStickyLimit, setProviderStickyLimit] = useState("1");
+  const [sortingConnections, setSortingConnections] = useState(false);
   const [confirmState, setConfirmState] = useState(null);
 
   const fetch_ = useCallback(async () => {
@@ -353,6 +355,34 @@ export default function ConnectionsCard({ providerId, isOAuth, loginProviderId =
         fetch(`/api/providers/${next[i2].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority: i2 }) }),
       ]);
     } catch { await fetch_(); }
+  };
+
+  // Alphabetical sort persists by rewriting each connection's `priority` in
+  // order (1..N). Sequential, per-row writes through the existing PUT endpoint
+  // re-read the row server-side, so credentials are never dropped; the order
+  // survives Download/Import Backup because `priority` is part of the export.
+  const handleSortConnections = async (direction) => {
+    if (sortingConnections) return;
+    const sorted = sortConnectionsByLabel(connections, direction).map(
+      (c, i) => ({ ...c, priority: i + 1 }),
+    );
+    setConnections(sorted);
+    setSortingConnections(true);
+    try {
+      for (let i = 0; i < sorted.length; i++) {
+        const res = await fetch(`/api/providers/${sorted[i].id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ priority: i + 1 }),
+        });
+        if (!res.ok) throw new Error(`Failed to set priority for ${sorted[i].id}`);
+      }
+    } catch (e) {
+      console.log("Error sorting connections:", e);
+      await fetch_();
+    } finally {
+      setSortingConnections(false);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -405,6 +435,20 @@ export default function ConnectionsCard({ providerId, isOAuth, loginProviderId =
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h2 className="text-lg font-semibold">Connections</h2>
           <div className="flex flex-wrap items-center gap-2">
+            {connections.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => e.target.value && handleSortConnections(e.target.value)}
+                disabled={sortingConnections}
+                className="h-8 rounded-lg border border-black/10 bg-black/[0.02] px-2 text-xs text-text-primary outline-none transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/10"
+                aria-label="Sort connections alphabetically"
+                title="Sort connections alphabetically"
+              >
+                <option value="">{sortingConnections ? "Sorting…" : "Sort"}</option>
+                <option value="az">Name A-Z</option>
+                <option value="za">Name Z-A</option>
+              </select>
+            )}
             <span className="text-xs text-text-muted font-medium">Round Robin</span>
             <Toggle
               checked={providerStrategy === "round-robin"}

@@ -27,6 +27,7 @@ import CustomConfigCard from "./CustomConfigCard";
 import AutoPingScheduleModal from "./AutoPingScheduleModal";
 import WebLoginButton, { WEB_LOGIN_PROVIDERS } from "../components/WebLoginButton.js";
 import { getScheduleSlotLabels } from "@/shared/services/quotaPingSchedule";
+import { sortConnectionsByLabel } from "../utils";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -83,6 +84,7 @@ export default function ProviderDetailPage() {
   const [confirmState, setConfirmState] = useState(null);
   const [showAgRiskModal, setShowAgRiskModal] = useState(false);
   const [oneByOneRunning, setOneByOneRunning] = useState(false);
+  const [sortingConnections, setSortingConnections] = useState(false);
   const [oneByOneStopping, setOneByOneStopping] = useState(false);
   const [oneByOneCurrentConnectionId, setOneByOneCurrentConnectionId] = useState(null);
   const [oneByOneResults, setOneByOneResults] = useState({});
@@ -928,6 +930,36 @@ export default function ProviderDetailPage() {
     }
   };
 
+  // Alphabetical sort persists by rewriting each connection's `priority` in
+  // order (1..N). The write is sequential and per-row so the server-side merge
+  // in updateProviderConnection can never drop credentials. Order survives
+  // Download/Import Backup because `priority` is part of the export.
+  const handleSortConnections = async (direction) => {
+    if (sortingConnections) return;
+    // Re-stamp priority locally too, so the row's `#N` badge matches the new
+    // order immediately (the row renders connection.priority).
+    const sorted = sortConnectionsByLabel(connections, direction).map(
+      (c, i) => ({ ...c, priority: i + 1 }),
+    );
+    setConnections(sorted);
+    setSortingConnections(true);
+    try {
+      for (let i = 0; i < sorted.length; i++) {
+        const res = await fetch(`/api/providers/${sorted[i].id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ priority: i + 1 }),
+        });
+        if (!res.ok) throw new Error(`Failed to set priority for ${sorted[i].id}`);
+      }
+    } catch (error) {
+      console.log("Error sorting connections:", error);
+      await fetchConnections();
+    } finally {
+      setSortingConnections(false);
+    }
+  };
+
   const selectedConnections = connections.filter((conn) => selectedConnectionIds.includes(conn.id));
   const allSelected = connections.length > 0 && selectedConnectionIds.length === connections.length;
 
@@ -1680,6 +1712,18 @@ export default function ProviderDetailPage() {
                     />
                     Select All
                   </label>
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && handleSortConnections(e.target.value)}
+                    disabled={sortingConnections}
+                    className="ml-auto h-8 rounded-lg border border-black/10 bg-black/[0.02] px-2 text-xs text-text-primary outline-none transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/10"
+                    aria-label="Sort connections alphabetically"
+                    title="Sort connections alphabetically"
+                  >
+                    <option value="">{sortingConnections ? "Sorting…" : "Sort"}</option>
+                    <option value="az">Name A-Z</option>
+                    <option value="za">Name Z-A</option>
+                  </select>
                 </div>
               )}
               {connectionsList}
